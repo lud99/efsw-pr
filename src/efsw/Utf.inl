@@ -403,7 +403,7 @@ Out Utf<32>::FromAnsi( In begin, In end, Out output, const std::locale& locale )
 
 template <typename In, typename Out> Out Utf<32>::FromWide( In begin, In end, Out output ) {
 	while ( begin < end )
-		*output++ = DecodeWide( *begin++ );
+		*output++ = DecodeWide( begin, end );
 
 	return output;
 }
@@ -499,13 +499,76 @@ template <typename In> Uint32 Utf<32>::DecodeAnsi( In input, const std::locale& 
 }
 
 template <typename In> Uint32 Utf<32>::DecodeWide( In input ) {
-	// The encoding of wide characters is not well defined and is left to the system;
-	// however we can safely assume that it is UCS-2 on Windows and
-	// UCS-4 on Unix systems.
-	// In both cases, a simple copy is enough (UCS-2 is a subset of UCS-4,
-	// and UCS-4 *is* UTF-32).
+	// We have no context to combine surrogate pairs, so the only safe thing on a 16‑bit wchar_t
+	// platform is to reject surrogate code units.
+	const Uint32 replacement = 0xFFFD;
 
-	return input;
+	switch ( sizeof( wchar_t ) ) {
+		case 2: {
+			const Uint32 w = static_cast<Uint32>( input );
+			if ( w >= 0xD800u && w <= 0xDFFFu )
+				return replacement; // Cannot form a full code point here
+			return w;
+		}
+		case 4: {
+			const Uint32 code = static_cast<Uint32>( input );
+			if ( code > 0x10FFFFu || ( code >= 0xD800u && code <= 0xDFFFu ) )
+				return replacement;
+			return code;
+		}
+	}
+
+	return replacement;
+}
+
+template <typename In> Uint32 Utf<32>::DecodeWide( In& it, In end ) {
+	// The encoding of wide characters is not well defined and is left to the system;
+	// Previously we assumed
+	// UCS-2 on Windows and UCS-4 on Unix and just copied wchar_t to UTF-32,
+	// which broke for characters outside the BMP (surrogate pairs were copied
+	// as invalid code points). Treat 16-bit wchar_t as UTF-16 (handling
+	// surrogates) and 32-bit wchar_t as UTF-32 with validation, producing valid
+	// Unicode values in all cases.
+
+	const Uint32 replacement = 0xFFFD;
+
+	switch ( sizeof( wchar_t ) ) {
+		case 2: {
+			const Uint32 w1 = static_cast<Uint32>( *it++ );
+
+			if ( w1 >= 0xD800u && w1 <= 0xDBFFu ) {
+				// High surrogate
+				if ( it != end ) {
+					const Uint32 w2 = static_cast<Uint32>( *it );
+					if ( w2 >= 0xDC00u && w2 <= 0xDFFFu ) {
+						// Valid surrogate pair
+						++it;
+						return 0x10000u + ( ( w1 - 0xD800u ) << 10 ) + ( w2 - 0xDC00u );
+					}
+				}
+				// Unpaired or invalid second unit
+				return replacement;
+			} else if ( w1 >= 0xDC00u && w1 <= 0xDFFFu ) {
+				// Unpaired low surrogate
+				return replacement;
+			} else {
+				// BMP code point
+				return w1;
+			}
+		}
+		case 4: {
+			const Uint32 code = static_cast<Uint32>( *it++ );
+
+			// Validate scalar value
+			if ( code > 0x10FFFFu || ( code >= 0xD800u && code <= 0xDFFFu ) ) {
+				return replacement;
+			}
+
+			return code;
+		}
+	}
+
+	return replacement;
 }
 
 template <typename Out>
@@ -557,7 +620,13 @@ Out Utf<32>::EncodeWide( Uint32 codepoint, Out output, wchar_t replacement ) {
 
 	switch ( sizeof( wchar_t ) ) {
 		case 4: {
-			*output++ = static_cast<wchar_t>( codepoint );
+
+			// Validate code point for UCS-4
+			if ( codepoint <= 0x10FFFF && !( codepoint >= 0xD800 && codepoint <= 0xDFFF ) ) {
+				*output++ = static_cast<wchar_t>( codepoint );
+			} else if ( replacement ) {
+				*output++ = replacement;
+			}
 			break;
 		}
 
@@ -568,8 +637,9 @@ Out Utf<32>::EncodeWide( Uint32 codepoint, Out output, wchar_t replacement ) {
 					*output++ = static_cast<wchar_t>( codepoint );
 				} else {
 					// Invalid code point -> replacement
-					if ( replacement )
+					if ( replacement ) {
 						*output++ = replacement;
+					}
 				}
 			} else if ( codepoint <= 0x10FFFF ) {
 				// Encode surrogate pair
@@ -582,8 +652,9 @@ Out Utf<32>::EncodeWide( Uint32 codepoint, Out output, wchar_t replacement ) {
 				*output++ = low;
 			} else {
 				// Invalid Unicode range
-				if ( replacement )
+				if ( replacement ) {
 					*output++ = replacement;
+				}
 			}
 			break;
 		}

@@ -1,0 +1,103 @@
+﻿#include "efsw/String.hpp"
+#include "test_util.hpp"
+#include "utest.h"
+#include <cstdint>
+
+using namespace efsw_test;
+
+#include <iomanip> // std::hex, std::setw, std::setfill
+#include <iostream>
+
+void print_hex_bytes( const std::u32string& s, size_t size ) {
+	for ( int i = 0; i < size; i++) {
+		std::printf( "%08x ", s[i] );
+	}
+	std::cout << "\n";
+}
+
+void print_hex_bytes( const std::string& s ) {
+	for ( unsigned char c : s ) {
+		std::printf( "%02x ", c );
+	}
+	std::cout << "\n";
+}
+
+void print_hex_bytes( const std::wstring& s ) {
+	for ( wchar_t c : s ) {
+		std::printf( "%04x ", c );
+	}
+	std::cout << "\n";
+}
+
+UTEST( Encoding, Utf32String) {
+	const auto emojiString = efsw::String(
+		U"🐈🏳️‍🌈🇺🇸0️⃣✈️™️❤️" );
+
+	const size_t expectedUtf32ByteCount = 16;
+	const char32_t expectedUtf32Bytes[expectedUtf32ByteCount] = {
+		0x0001f408, 0x0001f3f3, 0x0000fe0f, 0x0000200d,
+								 0x0001f308, 0x0001f1fa, 0x0001f1f8, 0x00000030,
+								 0x0000fe0f, 0x000020e3, 0x00002708, 0x0000fe0f,
+								 0x00002122, 0x0000fe0f, 0x00002764, 0x0000fe0f };
+
+	for ( size_t i = 0; i < expectedUtf32ByteCount; ++i ) {
+		EXPECT_EQ( expectedUtf32Bytes[i], emojiString[i] );
+	}
+
+	const auto utf8 = emojiString.toUtf8();
+
+	const size_t expectedUtf8ByteCount = 51;
+	char expectedUtf8Bytes[expectedUtf8ByteCount] = {
+		0xf0, 0x9f, 0x90, 0x88, 0xf0, 0x9f, 0x8f, 0xb3, 0xef, 0xb8, 0x8f,
+							0xe2, 0x80, 0x8d, 0xf0, 0x9f, 0x8c, 0x88, 0xf0, 0x9f, 0x87, 0xba,
+							0xf0, 0x9f, 0x87, 0xb8, 0x30, 0xef, 0xb8, 0x8f, 0xe2, 0x83, 0xa3,
+							0xe2, 0x9c, 0x88, 0xef, 0xb8, 0x8f, 0xe2, 0x84, 0xa2, 0xef, 0xb8,
+							0x8f, 0xe2, 0x9d, 0xa4, 0xef, 0xb8, 0x8f };
+
+	for (size_t i = 0; i < expectedUtf8ByteCount; ++i)
+	{
+		EXPECT_EQ( expectedUtf8Bytes[i], utf8[i] );
+	}
+}
+
+
+UTEST( Encoding, WideString) {
+
+	const auto emojiString = efsw::String(
+		L"🐈🏳️‍🌈🇺🇸0️⃣✈️™️❤️" );
+	
+	const size_t expectedWideByteCount = 21;
+	const char32_t expectedWideBytes[expectedWideByteCount] = {
+		0xd83d, 0xdc08, 0xd83c, 0xdff3, 0xfe0f, 0x200d, 0xd83c, 0xdf08, 0xd83c, 0xddfa, 0xd83c,
+		0xddf8, 0x0030, 0xfe0f, 0x20e3, 0x2708, 0xfe0f, 0x2122, 0xfe0f, 0x2764, 0xfe0f };
+
+	const auto wide = emojiString.toWideString();
+	for ( size_t i = 0; i < expectedWideByteCount; ++i ) {
+		EXPECT_EQ( expectedWideBytes[i], wide[i] );
+	}
+
+	const auto utf8 = emojiString.toUtf8();
+
+	const size_t expectedUtf8ByteCount = 51;
+	char expectedUtf8Bytes[expectedUtf8ByteCount] = {
+		0xf0, 0x9f, 0x90, 0x88, 0xf0, 0x9f, 0x8f, 0xb3, 0xef, 0xb8, 0x8f, 0xe2, 0x80,
+		0x8d, 0xf0, 0x9f, 0x8c, 0x88, 0xf0, 0x9f, 0x87, 0xba, 0xf0, 0x9f, 0x87, 0xb8,
+		0x30, 0xef, 0xb8, 0x8f, 0xe2, 0x83, 0xa3, 0xe2, 0x9c, 0x88, 0xef, 0xb8, 0x8f,
+		0xe2, 0x84, 0xa2, 0xef, 0xb8, 0x8f, 0xe2, 0x9d, 0xa4, 0xef, 0xb8, 0x8f };
+
+	for ( size_t i = 0; i < expectedUtf8ByteCount; ++i ) {
+		EXPECT_EQ( expectedUtf8Bytes[i], utf8[i] );
+	}
+
+	// High surrogate 0xD83D followed by 'A'instead of a low surrogate should be rejected
+	const wchar_t replacement = L'\uFFFD';
+	auto invalidPair = efsw::String( L"\xD83D\x0041" );
+	EXPECT_EQ( invalidPair.data()[0], replacement );
+	EXPECT_EQ( invalidPair.data()[1], L'\u0041' );
+
+
+	// Test that single-character surrugate pairs are rejected
+	const auto rejectedString = efsw::String( static_cast<wchar_t>( 0xDA00u ) );
+
+	EXPECT_EQ( rejectedString.data()[0], replacement );
+}
