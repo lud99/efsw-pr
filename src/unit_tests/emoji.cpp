@@ -70,7 +70,7 @@ UTEST( Encoding, WideString ) {
 	const auto expectedUtf8String =
 		std::string( reinterpret_cast<const char*>( expectedUtf8Bytes ), expectedUtf8ByteCount );
 
-	EXPECT_EQ( expectedUtf8String, utf8 );
+	EXPECT_TRUE( expectedUtf8String == utf8 );
 
 	// High surrogate 0xD83D followed by 'A'instead of a low surrogate should be rejected.
 	// DecodeWide does validation for both UTF-16 and UTF-32 machines, otherwise this test would
@@ -94,7 +94,7 @@ should return the replacement character (as the emoji does not fit into wchar_t)
 platforms it should work
 */
 UTEST( Encoding, WideCharEmoji ) {
-	const uint32_t replacement = 0xFFFDu;
+	[[maybe_unused]] const uint32_t replacement = 0xFFFDu;
 
 #if WCHAR_MAX == 0xFFFF
 	// Windows: 16‑bit wchar_t, use first surrogate of U+1F408
