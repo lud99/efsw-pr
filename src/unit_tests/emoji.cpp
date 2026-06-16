@@ -48,9 +48,9 @@ UTEST( Encoding, WideString ) {
 	// Linux/macOS / UTF-32
 	const size_t expectedWideByteCount = 16;
 	const wchar_t expectedWideBytes[expectedWideByteCount] = {
-		0x0001F408, 0x0001F3F3, 0x0000FE0F, 0x0000200D, 0x0001F308, 0x0001F1FA,
-		0x0001F1F8, 0x00000030, 0x0000FE0F, 0x000020E3, 0x00002708, 0x0000FE0F,
-		0x00002122, 0x0000FE0F, 0x00002764, 0x0000FE0F };
+		0x0001f408, 0x0001f3f3, 0x0000fe0f, 0x0000200d, 0x0001f308, 0x0001f1fa,
+		0x0001f1f8, 0x00000030, 0x0000fe0f, 0x000020e3, 0x00002708, 0x0000fe0f,
+		0x00002122, 0x0000fe0f, 0x00002764, 0x0000fe0f };
 #endif
 
 	const auto expectedWideString = std::wstring( expectedWideBytes, expectedWideByteCount );
