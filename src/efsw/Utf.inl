@@ -502,23 +502,19 @@ template <typename In> Uint32 Utf<32>::DecodeWide( In input ) {
 	// We have no context to combine surrogate pairs, so the only safe thing on a 16‑bit wchar_t
 	// platform is to reject surrogate code units.
 	const Uint32 replacement = 0xFFFD;
+	const Uint32 code = static_cast<Uint32>( input );
 
-	switch ( sizeof( wchar_t ) ) {
-		case 2: {
-			const Uint32 w = static_cast<Uint32>( input );
-			if ( w >= 0xD800u && w <= 0xDFFFu )
-				return replacement; // Cannot form a full code point here
-			return w;
-		}
-		case 4: {
-			const Uint32 code = static_cast<Uint32>( input );
-			if ( code > 0x10FFFFu || ( code >= 0xD800u && code <= 0xDFFFu ) )
-				return replacement;
-			return code;
-		}
-	}
+#if WCHAR_MAX == 0xFFFF
+	// UTF-16: Reject surrogate code units
+	if ( code >= 0xD800u && code <= 0xDFFFu )
+		return replacement; // Cannot form a full code point here
+#else
+	// UTF-32: emit single wchar_t codepoint
+	if ( code > 0x10FFFFu || ( code >= 0xD800u && code <= 0xDFFFu ) )
+		return replacement;
+#endif
 
-	return replacement;
+	return code;
 }
 
 template <typename In> Uint32 Utf<32>::DecodeWide( In& it, In end ) {
@@ -532,43 +528,40 @@ template <typename In> Uint32 Utf<32>::DecodeWide( In& it, In end ) {
 
 	const Uint32 replacement = 0xFFFD;
 
-	switch ( sizeof( wchar_t ) ) {
-		case 2: {
-			const Uint32 w1 = static_cast<Uint32>( *it++ );
+#if WCHAR_MAX == 0xFFFF
+	// UTF-16
+	const Uint32 w1 = static_cast<Uint32>( *it++ );
 
-			if ( w1 >= 0xD800u && w1 <= 0xDBFFu ) {
-				// High surrogate
-				if ( it != end ) {
-					const Uint32 w2 = static_cast<Uint32>( *it );
-					if ( w2 >= 0xDC00u && w2 <= 0xDFFFu ) {
-						// Valid surrogate pair
-						++it;
-						return 0x10000u + ( ( w1 - 0xD800u ) << 10 ) + ( w2 - 0xDC00u );
-					}
-				}
-				// Unpaired or invalid second unit
-				return replacement;
-			} else if ( w1 >= 0xDC00u && w1 <= 0xDFFFu ) {
-				// Unpaired low surrogate
-				return replacement;
-			} else {
-				// BMP code point
-				return w1;
+	if ( w1 >= 0xD800u && w1 <= 0xDBFFu ) {
+		// High surrogate
+		if ( it != end ) {
+			const Uint32 w2 = static_cast<Uint32>( *it );
+			if ( w2 >= 0xDC00u && w2 <= 0xDFFFu ) {
+				// Valid surrogate pair
+				++it;
+				return 0x10000u + ( ( w1 - 0xD800u ) << 10 ) + ( w2 - 0xDC00u );
 			}
 		}
-		case 4: {
-			const Uint32 code = static_cast<Uint32>( *it++ );
+		// Unpaired or invalid second unit
+		return replacement;
+	} else if ( w1 >= 0xDC00u && w1 <= 0xDFFFu ) {
+		// Unpaired low surrogate
+		return replacement;
+	} else {
+		// BMP code point
+		return w1;
+	}
+#else
+	// UTF-32: emit single wchar_t codepoint
+	const Uint32 code = static_cast<Uint32>( *it++ );
 
-			// Validate scalar value
-			if ( code > 0x10FFFFu || ( code >= 0xD800u && code <= 0xDFFFu ) ) {
-				return replacement;
-			}
-
-			return code;
-		}
+	// Validate scalar value
+	if ( code > 0x10FFFFu || ( code >= 0xD800u && code <= 0xDFFFu ) ) {
+		return replacement;
 	}
 
-	return replacement;
+	return code;
+#endif
 }
 
 template <typename Out>
@@ -613,52 +606,51 @@ Out Utf<32>::EncodeAnsi( Uint32 codepoint, Out output, char replacement,
 template <typename Out>
 Out Utf<32>::EncodeWide( Uint32 codepoint, Out output, wchar_t replacement ) {
 	// The encoding of wide characters is not well defined and is left to the system;
-	// however we can safely assume that it is UCS-2 on Windows and
-	// UCS-4 on Unix systems.
-	// For UCS-2 we need to check if the source characters fits in (UCS-2 is a subset of UCS-4).
-	// For UCS-4 we can do a direct copy (UCS-4 *is* UTF-32).
+	// Previously we assumed
+	// UCS-2 on Windows and UCS-4 on Unix and just copied wchar_t to UTF-32,
+	// which broke for characters outside the BMP (surrogate pairs were copied
+	// as invalid code points). Treat 16-bit wchar_t as UTF-16 (handling
+	// surrogates) and 32-bit wchar_t as UTF-32 with validation, producing valid
+	// Unicode values in all cases.
 
-	switch ( sizeof( wchar_t ) ) {
-		case 4: {
-
-			// Validate code point for UCS-4
-			if ( codepoint <= 0x10FFFF && !( codepoint >= 0xD800 && codepoint <= 0xDFFF ) ) {
-				*output++ = static_cast<wchar_t>( codepoint );
-			} else if ( replacement ) {
+#if WCHAR_MAX == 0xFFFF
+	// UTF-16
+	if ( codepoint <= 0xFFFF ) {
+		// Exclude surrogate range
+		if ( codepoint < 0xD800 || codepoint > 0xDFFF ) {
+			*output++ = static_cast<wchar_t>( codepoint );
+		} else {
+			// Invalid code point -> replacement
+			if ( replacement ) {
 				*output++ = replacement;
 			}
-			break;
 		}
+	} else if ( codepoint <= 0x10FFFF ) {
+		// Encode surrogate pair
+		codepoint -= 0x10000;
 
-		default: {
-			if ( codepoint <= 0xFFFF ) {
-				// Exclude surrogate range
-				if ( codepoint < 0xD800 || codepoint > 0xDFFF ) {
-					*output++ = static_cast<wchar_t>( codepoint );
-				} else {
-					// Invalid code point -> replacement
-					if ( replacement ) {
-						*output++ = replacement;
-					}
-				}
-			} else if ( codepoint <= 0x10FFFF ) {
-				// Encode surrogate pair
-				codepoint -= 0x10000;
+		wchar_t high = 0xD800 + ( codepoint >> 10 );
+		wchar_t low = 0xDC00 + ( codepoint & 0x3FF );
 
-				wchar_t high = 0xD800 + ( codepoint >> 10 );
-				wchar_t low = 0xDC00 + ( codepoint & 0x3FF );
-
-				*output++ = high;
-				*output++ = low;
-			} else {
-				// Invalid Unicode range
-				if ( replacement ) {
-					*output++ = replacement;
-				}
-			}
-			break;
+		*output++ = high;
+		*output++ = low;
+	} else {
+		// Invalid Unicode range
+		if ( replacement ) {
+			*output++ = replacement;
 		}
 	}
+
+#else
+	// UTF-32: emit single wchar_t codepoint
+	// Validate code point for UCS-4
+	if ( codepoint <= 0x10FFFF && !( codepoint >= 0xD800 && codepoint <= 0xDFFF ) ) {
+		// Direct copy
+		*output++ = static_cast<wchar_t>( codepoint );
+	} else if ( replacement ) {
+		*output++ = replacement;
+	}
+#endif
 
 	return output;
 }
