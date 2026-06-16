@@ -94,7 +94,6 @@ should return the replacement character (as the emoji does not fit into wchar_t)
 platforms it should work
 */
 UTEST( Encoding, WideCharEmoji ) {
-	[[maybe_unused]] const uint32_t replacement = 0xFFFDu;
 
 #if WCHAR_MAX == 0xFFFF
 	// Windows: 16‑bit wchar_t, use first surrogate of U+1F408
@@ -109,6 +108,7 @@ UTEST( Encoding, WideCharEmoji ) {
 
 #if WCHAR_MAX == 0xFFFF
 	// On Windows we expect the replacement character
+	const uint32_t replacement = 0xFFFDu;
 	EXPECT_EQ( code, replacement );
 #else
 	// On other platforms we expect the actual cat emoji code point
